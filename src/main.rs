@@ -97,7 +97,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     println!("Auth token: {auth_token}");
     println!();
     println!("Attach manually in another terminal:");
-    println!("  curl -X POST http://127.0.0.1:{port}/v1/threads/{thread_id}/messages \\");
+    println!("  curl -X POST http://127.0.0.1:{port}/v1/threads/{thread_id}/turns \\");
     println!("    -H \"Authorization: Bearer {auth_token}\" \\");
     println!("    -H \"Content-Type: application/json\" \\");
     println!("    -d '{{\"prompt\": \"hello from modes\"}}'");

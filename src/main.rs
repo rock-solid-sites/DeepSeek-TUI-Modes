@@ -50,8 +50,8 @@ fn main() {
     }
 }
 
-/// Assembles the prompt, spawns the daemon, runs pre-flight, creates the
-/// operational thread, and blocks until Ctrl+C.
+/// Assembles the prompt, spawns the daemon, creates the operational thread,
+/// and blocks until Ctrl+C.
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = cli.workspace.unwrap_or_else(|| {
         std::env::current_dir()
@@ -86,13 +86,8 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     daemon::wait_for_health(port)?;
     eprintln!("Daemon is healthy.");
 
-    // -- Pre-flight check --------------------------------------------------------
-    eprintln!("Running pre-flight sentinel check...");
-    api::run_preflight(port, &auth_token, &assembled, &workspace)?;
-    eprintln!("Pre-flight passed.");
-
     // -- Create operational thread -----------------------------------------------
-    eprintln!("Creating operational thread...");
+    eprintln!("Creating operational thread with assembled prompt...");
     let thread_id = api::create_thread(port, &auth_token, &assembled, &workspace)?;
 
     // -- Report ------------------------------------------------------------------
@@ -148,18 +143,20 @@ fn print_and_exit(cli: &Cli) {
 
 /// Finds the `prompts/` directory relative to the executable or CWD.
 fn find_prompts_dir() -> PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            let candidate = exe_dir.join("prompts");
+    if let Some(exe) = std::env::current_exe()
+        .ok()
+        .as_ref()
+        .and_then(|p| p.parent())
+    {
+        let candidate = exe.join("prompts");
+        if candidate.is_dir() {
+            return candidate;
+        }
+        // One level up (cargo run places binary in target/debug/).
+        if let Some(parent) = exe.parent() {
+            let candidate = parent.join("prompts");
             if candidate.is_dir() {
                 return candidate;
-            }
-            // One level up (cargo run places binary in target/debug/).
-            if let Some(parent) = exe_dir.parent() {
-                let candidate = parent.join("prompts");
-                if candidate.is_dir() {
-                    return candidate;
-                }
             }
         }
     }

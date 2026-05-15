@@ -39,7 +39,7 @@ impl Daemon {
         let listener = TcpListener::bind("127.0.0.1:0").map_err(DaemonError::PortBind)?;
         let port = listener
             .local_addr()
-            .map_err(|e| DaemonError::PortBind(std::io::Error::new(std::io::ErrorKind::Other, e)))?
+            .map_err(|e| DaemonError::PortBind(std::io::Error::other(e)))?
             .port();
         drop(listener); // TOCTOU race — acceptable for v0.1.
 
@@ -52,9 +52,9 @@ impl Daemon {
         let stderr_path = run_dir.join("daemon.stderr").to_string_lossy().to_string();
 
         let stdout_file = std::fs::File::create(&stdout_path)
-            .map_err(|e| DaemonError::Spawn(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| DaemonError::Spawn(std::io::Error::other(e)))?;
         let stderr_file = std::fs::File::create(&stderr_path)
-            .map_err(|e| DaemonError::Spawn(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+            .map_err(|e| DaemonError::Spawn(std::io::Error::other(e)))?;
 
         let child = Command::new(binary)
             .args([

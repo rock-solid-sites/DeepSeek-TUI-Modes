@@ -10,6 +10,7 @@ pub struct AxisValues {
 }
 
 impl AxisValues {
+    #[allow(dead_code)]
     /// True when no axes are active (equivalent to `none` mode).
     pub fn is_empty(&self) -> bool {
         self.agency.is_none() && self.quality.is_none() && self.scope.is_none()
@@ -17,6 +18,7 @@ impl AxisValues {
 
     /// Merge another AxisValues into this one. Non-None values in `other`
     /// overwrite the corresponding values in `self`.
+    #[allow(dead_code)]
     pub fn merge(&mut self, other: &AxisValues) {
         if other.agency.is_some() {
             self.agency.clone_from(&other.agency);
@@ -36,6 +38,36 @@ pub struct Preset {
     pub axes: AxisValues,
     pub modifiers: Vec<String>,
 }
+
+// ---------------------------------------------------------------------------
+// Built-in name constants
+// ---------------------------------------------------------------------------
+
+/// All built-in preset names.
+pub const BUILTIN_PRESETS: &[&str] = &[
+    "none", "safe", "create", "extend", "refactor", "explore", "debug",
+    "methodical", "director", "partner", "muse",
+];
+
+/// All built-in modifier names.
+pub const BUILTIN_MODIFIERS: &[&str] = &[
+    "readonly", "context-pacing", "debug", "methodical", "director",
+    "bold", "speak-plain", "tdd", "muse",
+];
+
+// Convenience references to the three axis-value groups.
+pub const AGENCY_VALUES: &[&str] = &["autonomous", "collaborative", "partner", "surgical"];
+pub const QUALITY_VALUES: &[&str] = &["architect", "minimal", "pragmatic"];
+pub const SCOPE_VALUES: &[&str] = &["adjacent", "narrow", "unrestricted"];
+
+/// Default axis values used when a preset is active but doesn't set an axis.
+pub const DEFAULT_AGENCY: &str = "collaborative";
+pub const DEFAULT_QUALITY: &str = "pragmatic";
+pub const DEFAULT_SCOPE: &str = "adjacent";
+
+// ---------------------------------------------------------------------------
+// Preset lookup
+// ---------------------------------------------------------------------------
 
 /// Returns the axis values for a named preset, or `None` if the preset
 /// is unknown.

@@ -1,9 +1,10 @@
 mod api;
 mod assemble;
+mod config;
 mod daemon;
 mod presets;
+mod resolve;
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
@@ -30,30 +31,39 @@ use clap::Parser;
 /// | `explore`    | collaborative  | architect    | narrow         |
 /// | `debug`      | collaborative  | pragmatic    | narrow         |
 /// | `methodical` | surgical       | architect    | narrow         |
+/// | `director`   | collaborative  | architect    | unrestricted   |
+/// | `partner`    | partner        | pragmatic    | adjacent       |
 /// | `muse`       | autonomous     | architect    | unrestricted   |
 ///
 /// # Modifiers
 ///
 /// Built-in modifiers can be combined with any preset via `--modifier`.
-/// See `--help` for the full list.
+/// Valid: readonly, context-pacing, debug, methodical, director, bold,
+/// speak-plain, tdd, muse.
 #[derive(Parser)]
 #[command(name = "deepseek-tui-modes", version, about)]
 struct Cli {
     /// Preset name. One of: none, safe, create, extend, refactor,
-    /// explore, debug, methodical, muse. Defaults to "none" when omitted.
+    /// explore, debug, methodical, director, partner, muse.
+    /// Defaults to "none" when omitted.
     preset: Option<String>,
 
-    /// Agency axis: autonomous, collaborative, partner, surgical.
+    /// Agency axis: name, path, or built-in (autonomous, collaborative,
+    /// partner, surgical).
     #[arg(long)]
     agency: Option<String>,
 
-    /// Quality axis: architect, minimal, pragmatic.
+    /// Quality axis: name, path, or built-in (architect, minimal, pragmatic).
     #[arg(long)]
     quality: Option<String>,
 
-    /// Scope axis: adjacent, narrow, unrestricted.
+    /// Scope axis: name, path, or built-in (adjacent, narrow, unrestricted).
     #[arg(long)]
     scope: Option<String>,
+
+    /// Base selection: "standard", config-defined name, or directory path.
+    #[arg(long)]
+    base: Option<String>,
 
     /// Workspace path (defaults to current directory).
     #[arg(long)]
@@ -63,10 +73,8 @@ struct Cli {
     #[arg(long)]
     print: bool,
 
-    /// Built-in modifier name. Repeatable. Valid values: readonly,
-    /// context-pacing, debug, methodical, director, bold, speak-plain,
-    /// tdd, muse.
-    #[arg(long, value_name = "NAME")]
+    /// Modifier name or file path. Repeatable.
+    #[arg(long, value_name = "NAME_OR_PATH")]
     modifier: Vec<String>,
 
     /// Shorthand for --modifier readonly.
@@ -77,28 +85,28 @@ struct Cli {
     #[arg(long)]
     context_pacing: bool,
 
+    /// Append additional text after the assembled prompt.
+    #[arg(long)]
+    append_system_prompt: Option<String>,
+
     /// Passthrough arguments forwarded after `--`.
     #[arg(last = true)]
     passthrough: Vec<String>,
 }
 
-/// Result of computing axes and modifiers from preset + CLI overrides.
-struct ModeConfig {
-    axes: presets::AxisValues,
-    modifiers: Vec<String>,
-}
-
 fn main() {
-    // Simple print mode doesn't need daemon lifecycle.
     let cli = Cli::parse();
+
+    // Load config (empty default if no file found).
+    let config = config::Config::load();
+    let prompts_dir = find_prompts_dir();
+
     if cli.print {
-        print_and_exit(&cli);
+        print_and_exit(&cli, &config, &prompts_dir);
         return;
     }
 
-    // Run the full lifecycle. The Daemon's Drop impl runs when `run` returns,
-    // regardless of success or error.
-    if let Err(e) = run(cli) {
+    if let Err(e) = run(cli, &config, &prompts_dir) {
         eprintln!("Error: {e}");
         process::exit(1);
     }
@@ -106,7 +114,11 @@ fn main() {
 
 /// Assembles the prompt, spawns the daemon, creates the operational thread,
 /// and blocks until Ctrl+C.
-fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
+fn run(
+    cli: Cli,
+    config: &config::Config,
+    prompts_dir: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
     let workspace = cli.workspace.clone().unwrap_or_else(|| {
         std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
@@ -115,19 +127,34 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let preset = cli.preset.clone().unwrap_or_else(|| "none".to_string());
-    let prompts_dir = find_prompts_dir();
 
-    // -- Mode computation ----------------------------------------------------
-    let mode = compute_mode(&cli);
+    // -- Resolution --------------------------------------------------------------
+    let args = resolve::ResolveArgs {
+        preset: cli.preset.as_deref(),
+        agency: cli.agency.as_deref(),
+        quality: cli.quality.as_deref(),
+        scope: cli.scope.as_deref(),
+        modifiers: &cli.modifier,
+        readonly: cli.readonly,
+        context_pacing: cli.context_pacing,
+        base: cli.base.as_deref(),
+        append_system_prompt: cli.append_system_prompt.as_deref(),
+    };
+    let resolved = resolve::resolve(&args, config, prompts_dir)?;
 
     // -- Assembly ---------------------------------------------------------------
     let options = assemble::AssembleOptions {
-        prompts_dir,
-        base: "standard".to_string(),
-        axes: mode.axes,
-        modifiers: mode.modifiers,
+        base_dir: resolved.base_dir,
+        axis_paths: resolved.axis_paths,
+        modifier_paths: resolved.modifier_paths,
     };
-    let assembled = assemble::assemble_prompt(&options)?;
+    let mut assembled = assemble::assemble_prompt(&options)?;
+
+    // Append system prompt if provided
+    if let Some(ref text) = resolved.append_system_prompt {
+        assembled.push_str("\n\n");
+        assembled.push_str(text);
+    }
 
     // -- Binary lookup -----------------------------------------------------------
     let binary = find_binary()?;
@@ -180,101 +207,46 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Handles `--print`: assemble and print the prompt, then exit.
-fn print_and_exit(cli: &Cli) {
-    let prompts_dir = find_prompts_dir();
-    let mode = compute_mode(cli);
+fn print_and_exit(cli: &Cli, config: &config::Config, prompts_dir: &PathBuf) {
+    let args = resolve::ResolveArgs {
+        preset: cli.preset.as_deref(),
+        agency: cli.agency.as_deref(),
+        quality: cli.quality.as_deref(),
+        scope: cli.scope.as_deref(),
+        modifiers: &cli.modifier,
+        readonly: cli.readonly,
+        context_pacing: cli.context_pacing,
+        base: cli.base.as_deref(),
+        append_system_prompt: cli.append_system_prompt.as_deref(),
+    };
+
+    let resolved = match resolve::resolve(&args, config, prompts_dir) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error: {e}");
+            process::exit(1);
+        }
+    };
 
     let options = assemble::AssembleOptions {
-        prompts_dir,
-        base: "standard".to_string(),
-        axes: mode.axes,
-        modifiers: mode.modifiers,
+        base_dir: resolved.base_dir,
+        axis_paths: resolved.axis_paths,
+        modifier_paths: resolved.modifier_paths,
     };
 
     match assemble::assemble_prompt(&options) {
-        Ok(prompt) => println!("{prompt}"),
+        Ok(mut prompt) => {
+            if let Some(ref text) = resolved.append_system_prompt {
+                prompt.push_str("\n\n");
+                prompt.push_str(text);
+            }
+            println!("{prompt}");
+        }
         Err(e) => {
             eprintln!("Error: failed to assemble prompt: {e}");
             process::exit(1);
         }
     }
-}
-
-/// Valid built-in modifier names.
-const VALID_MODIFIERS: &[&str] = &[
-    "readonly",
-    "context-pacing",
-    "debug",
-    "methodical",
-    "director",
-    "bold",
-    "speak-plain",
-    "tdd",
-    "muse",
-];
-
-/// Compute effective mode (axes + modifiers) from preset + CLI overrides.
-///
-/// Resolution order:
-/// 1. Start with all axes `None` (no axes) and empty modifiers.
-/// 2. If a known preset is given, merge its axis values and modifiers.
-/// 3. CLI flag values override the preset for that axis.
-/// 4. CLI modifiers are appended after preset modifiers, deduplicated
-///    preserving order.
-fn compute_mode(cli: &Cli) -> ModeConfig {
-    let mut axes = presets::AxisValues::default();
-    let preset_name = cli.preset.as_deref().unwrap_or("none");
-
-    // Start with preset modifiers.
-    let mut modifiers: Vec<String> = if preset_name != "none" {
-        if let Some(preset) = presets::get_preset(preset_name) {
-            axes.merge(&preset.axes);
-            preset.modifiers
-        } else {
-            eprintln!("Warning: unknown preset '{preset_name}', using none");
-            vec![]
-        }
-    } else {
-        vec![]
-    };
-
-    // CLI axis overrides on a per-axis basis.
-    if let Some(ref v) = cli.agency {
-        axes.agency = Some(v.clone());
-    }
-    if let Some(ref v) = cli.quality {
-        axes.quality = Some(v.clone());
-    }
-    if let Some(ref v) = cli.scope {
-        axes.scope = Some(v.clone());
-    }
-
-    // CLI modifiers: append deduplicated, preserving order.
-    let mut seen: HashSet<String> = modifiers.iter().cloned().collect();
-    for m in &cli.modifier {
-        if seen.insert(m.clone()) {
-            modifiers.push(m.clone());
-        }
-    }
-    if cli.readonly && seen.insert("readonly".to_string()) {
-        modifiers.push("readonly".to_string());
-    }
-    if cli.context_pacing && seen.insert("context-pacing".to_string()) {
-        modifiers.push("context-pacing".to_string());
-    }
-
-    // Validate modifier names.
-    for m in &modifiers {
-        if !VALID_MODIFIERS.contains(&m.as_str()) {
-            eprintln!(
-                "Error: unknown modifier '{m}'. Valid modifiers: {}",
-                VALID_MODIFIERS.join(", ")
-            );
-            process::exit(1);
-        }
-    }
-
-    ModeConfig { axes, modifiers }
 }
 
 /// Finds the `prompts/` directory relative to the executable or CWD.

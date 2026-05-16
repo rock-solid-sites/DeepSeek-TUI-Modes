@@ -127,6 +127,7 @@ pub fn get_preset(name: &str) -> Option<Preset> {
 
     let modifiers = match name {
         "debug" => vec!["debug".to_string()],
+        "explore" => vec!["readonly".to_string()],
         "methodical" => vec!["methodical".to_string()],
         "muse" => vec!["muse".to_string()],
         "director" => vec!["director".to_string()],
@@ -199,7 +200,7 @@ mod tests {
         assert_eq!(preset.axes.agency.as_deref(), Some("collaborative"));
         assert_eq!(preset.axes.quality.as_deref(), Some("architect"));
         assert_eq!(preset.axes.scope.as_deref(), Some("narrow"));
-        assert!(preset.modifiers.is_empty());
+        assert_eq!(preset.modifiers, vec!["readonly"]);
     }
 
     #[test]

@@ -4,6 +4,8 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use thiserror::Error;
 
+use crate::presets::AxisValues;
+
 #[derive(Debug, Error)]
 pub enum AssembleError {
     #[error("failed to read manifest at {path}: {source}")]
@@ -18,6 +20,11 @@ pub enum AssembleError {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("missing axis fragment: {path}")]
+    MissingAxisFragment {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -27,12 +34,9 @@ struct Manifest(Vec<String>);
 pub struct AssembleOptions {
     pub prompts_dir: PathBuf,
     pub base: String,
-    #[allow(dead_code)]
-    pub preset: String,
+    pub axes: AxisValues,
 }
 
-/// Returns the directory name for a well-known base.
-/// Mirrors upstream's mapping: `"standard"` → `"base"`.
 fn base_to_dir(name: &str) -> &str {
     match name {
         "standard" => "base",
@@ -40,16 +44,6 @@ fn base_to_dir(name: &str) -> &str {
     }
 }
 
-/// Reads a manifest, walks its entries in order, and joins the resulting
-/// fragments with `\n\n`.
-///
-/// For `"axes"` entries: expands to nothing (v0.1 only supports the `none`
-/// preset, which strips all axis fragments).
-///
-/// For `"modifiers"` entries: expands to nothing (v0.1 supports no modifiers).
-///
-/// All other entries are treated as fragment filenames relative to
-/// `prompts_dir/{base}/`.
 pub fn assemble_prompt(options: &AssembleOptions) -> Result<String, AssembleError> {
     let base_dir = options.prompts_dir.join(base_to_dir(&options.base));
 
@@ -65,11 +59,42 @@ pub fn assemble_prompt(options: &AssembleOptions) -> Result<String, AssembleErro
     for entry in &manifest.0 {
         match entry.as_str() {
             "axes" => {
-                // v0.1: only `none` mode, which strips all axis content.
+                if !options.axes.is_empty() {
+                    let axis_dir = options.prompts_dir.join("axis");
+
+                    if let Some(ref val) = options.axes.agency {
+                        let path = axis_dir.join("agency").join(format!("{val}.md"));
+                        let content = fs::read_to_string(&path).map_err(|e| {
+                            AssembleError::MissingAxisFragment {
+                                path: path.clone(),
+                                source: e,
+                            }
+                        })?;
+                        sections.push(content.trim().to_string());
+                    }
+                    if let Some(ref val) = options.axes.quality {
+                        let path = axis_dir.join("quality").join(format!("{val}.md"));
+                        let content = fs::read_to_string(&path).map_err(|e| {
+                            AssembleError::MissingAxisFragment {
+                                path: path.clone(),
+                                source: e,
+                            }
+                        })?;
+                        sections.push(content.trim().to_string());
+                    }
+                    if let Some(ref val) = options.axes.scope {
+                        let path = axis_dir.join("scope").join(format!("{val}.md"));
+                        let content = fs::read_to_string(&path).map_err(|e| {
+                            AssembleError::MissingAxisFragment {
+                                path: path.clone(),
+                                source: e,
+                            }
+                        })?;
+                        sections.push(content.trim().to_string());
+                    }
+                }
             }
-            "modifiers" => {
-                // v0.1: no modifiers supported.
-            }
+            "modifiers" => {}
             name => {
                 let path = base_dir.join(name);
                 let content =
@@ -93,18 +118,14 @@ mod tests {
     fn assemble_none_mode() {
         let dir = tempfile::tempdir().unwrap();
         let prompts_dir = dir.path().join("prompts");
-        // "standard" maps to the "base" directory.
         let base_dir = prompts_dir.join("base");
         fs::create_dir_all(&base_dir).unwrap();
 
-        // Write minimal manifest
         fs::write(
             base_dir.join("base.json"),
             r#"["intro.md", "system.md", "axes", "tone.md", "modifiers"]"#,
         )
         .unwrap();
-
-        // Write fragments with known content
         fs::write(base_dir.join("intro.md"), "Intro content.").unwrap();
         fs::write(base_dir.join("system.md"), "System content.").unwrap();
         fs::write(base_dir.join("tone.md"), "Tone content.").unwrap();
@@ -112,21 +133,59 @@ mod tests {
         let options = AssembleOptions {
             prompts_dir,
             base: "standard".to_string(),
-            preset: "none".to_string(),
+            axes: AxisValues::default(),
         };
 
         let result = assemble_prompt(&options).unwrap();
-
-        assert!(
-            result.contains("Intro content."),
-            "result should contain intro content"
-        );
-        assert!(
-            result.contains("Tone content."),
-            "result should contain tone content"
-        );
-        // Axes and modifiers should NOT insert anything extra
+        assert!(result.contains("Intro content."));
+        assert!(result.contains("Tone content."));
         assert_eq!(result, "Intro content.\n\nSystem content.\n\nTone content.");
+    }
+
+    #[test]
+    fn assemble_safe_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let prompts_dir = dir.path().join("prompts");
+        let base_dir = prompts_dir.join("base");
+        let axis_dir = prompts_dir.join("axis");
+        fs::create_dir_all(&base_dir).unwrap();
+        fs::create_dir_all(&axis_dir.join("agency")).unwrap();
+        fs::create_dir_all(&axis_dir.join("quality")).unwrap();
+        fs::create_dir_all(&axis_dir.join("scope")).unwrap();
+
+        fs::write(
+            base_dir.join("base.json"),
+            r#"["intro.md", "axes", "tone.md"]"#,
+        )
+        .unwrap();
+        fs::write(base_dir.join("intro.md"), "Intro.").unwrap();
+        fs::write(base_dir.join("tone.md"), "Tone.").unwrap();
+        fs::write(
+            axis_dir.join("agency/collaborative.md"),
+            "Agency: collaborative",
+        )
+        .unwrap();
+        fs::write(axis_dir.join("quality/minimal.md"), "Quality: minimal").unwrap();
+        fs::write(axis_dir.join("scope/narrow.md"), "Scope: narrow").unwrap();
+
+        let options = AssembleOptions {
+            prompts_dir,
+            base: "standard".to_string(),
+            axes: AxisValues {
+                agency: Some("collaborative".to_string()),
+                quality: Some("minimal".to_string()),
+                scope: Some("narrow".to_string()),
+            },
+        };
+
+        let result = assemble_prompt(&options).unwrap();
+        assert!(result.contains("Agency: collaborative"));
+        assert!(result.contains("Quality: minimal"));
+        assert!(result.contains("Scope: narrow"));
+        assert_eq!(
+            result,
+            "Intro.\n\nAgency: collaborative\n\nQuality: minimal\n\nScope: narrow\n\nTone."
+        );
     }
 
     #[test]
@@ -135,7 +194,6 @@ mod tests {
         let prompts_dir = dir.path().join("prompts");
         let base_dir = prompts_dir.join("base");
         fs::create_dir_all(&base_dir).unwrap();
-
         fs::write(
             base_dir.join("base.json"),
             r#"["intro.md", "nonexistent.md"]"#,
@@ -146,13 +204,32 @@ mod tests {
         let options = AssembleOptions {
             prompts_dir,
             base: "standard".to_string(),
-            preset: "none".to_string(),
+            axes: AxisValues::default(),
         };
-
         let err = assemble_prompt(&options).unwrap_err();
-        assert!(
-            matches!(err, AssembleError::MissingFragment { .. }),
-            "expected MissingFragment error, got {err}"
-        );
+        assert!(matches!(err, AssembleError::MissingFragment { .. }));
+    }
+
+    #[test]
+    fn assemble_missing_axis_fragment() {
+        let dir = tempfile::tempdir().unwrap();
+        let prompts_dir = dir.path().join("prompts");
+        let base_dir = prompts_dir.join("base");
+        fs::create_dir_all(&base_dir).unwrap();
+        fs::write(base_dir.join("base.json"), r#"["intro.md", "axes"]"#).unwrap();
+        fs::write(base_dir.join("intro.md"), "Intro.").unwrap();
+        fs::create_dir_all(&prompts_dir.join("axis/agency")).unwrap();
+
+        let options = AssembleOptions {
+            prompts_dir,
+            base: "standard".to_string(),
+            axes: AxisValues {
+                agency: Some("collaborative".to_string()),
+                quality: None,
+                scope: None,
+            },
+        };
+        let err = assemble_prompt(&options).unwrap_err();
+        assert!(matches!(err, AssembleError::MissingAxisFragment { .. }));
     }
 }

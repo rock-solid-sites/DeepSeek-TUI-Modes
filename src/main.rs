@@ -1,6 +1,7 @@
 mod api;
 mod assemble;
 mod daemon;
+mod presets;
 
 use std::path::PathBuf;
 use std::process;
@@ -18,8 +19,20 @@ use clap::Parser;
 #[derive(Parser)]
 #[command(name = "deepseek-tui-modes", version, about)]
 struct Cli {
-    /// Preset name (none, create, safe, ...).
+    /// Preset name (none, safe, ...).
     preset: Option<String>,
+
+    /// Agency axis: autonomous, collaborative, partner, surgical.
+    #[arg(long)]
+    agency: Option<String>,
+
+    /// Quality axis: architect, minimal, pragmatic.
+    #[arg(long)]
+    quality: Option<String>,
+
+    /// Scope axis: adjacent, narrow, unrestricted.
+    #[arg(long)]
+    scope: Option<String>,
 
     /// Workspace path (defaults to current directory).
     #[arg(long)]
@@ -53,21 +66,24 @@ fn main() {
 /// Assembles the prompt, spawns the daemon, creates the operational thread,
 /// and blocks until Ctrl+C.
 fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    let workspace = cli.workspace.unwrap_or_else(|| {
+    let workspace = cli.workspace.clone().unwrap_or_else(|| {
         std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .to_string_lossy()
             .to_string()
     });
 
-    let preset = cli.preset.unwrap_or_else(|| "none".to_string());
+    let preset = cli.preset.clone().unwrap_or_else(|| "none".to_string());
     let prompts_dir = find_prompts_dir();
+
+    // -- Axis computation -------------------------------------------------------
+    let axes = compute_axes(&cli);
 
     // -- Assembly ---------------------------------------------------------------
     let options = assemble::AssembleOptions {
         prompts_dir,
         base: "standard".to_string(),
-        preset: preset.clone(),
+        axes,
     };
     let assembled = assemble::assemble_prompt(&options)?;
 
@@ -124,12 +140,12 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 /// Handles `--print`: assemble and print the prompt, then exit.
 fn print_and_exit(cli: &Cli) {
     let prompts_dir = find_prompts_dir();
-    let preset = cli.preset.clone().unwrap_or_else(|| "none".to_string());
+    let axes = compute_axes(cli);
 
     let options = assemble::AssembleOptions {
         prompts_dir,
         base: "standard".to_string(),
-        preset,
+        axes,
     };
 
     match assemble::assemble_prompt(&options) {
@@ -139,6 +155,38 @@ fn print_and_exit(cli: &Cli) {
             process::exit(1);
         }
     }
+}
+
+/// Compute effective axis values from preset + CLI overrides.
+///
+/// Resolution order:
+/// 1. Start with all axes `None` (no axes).
+/// 2. If a known preset is given, merge its axis values.
+/// 3. CLI flag values override the preset for that axis.
+fn compute_axes(cli: &Cli) -> presets::AxisValues {
+    let mut axes = presets::AxisValues::default();
+
+    let preset_name = cli.preset.as_deref().unwrap_or("none");
+    if preset_name != "none" {
+        if let Some(preset_axes) = presets::get_preset(preset_name) {
+            axes.merge(&preset_axes);
+        } else {
+            eprintln!("Warning: unknown preset '{preset_name}', using none");
+        }
+    }
+
+    // CLI flags override on a per-axis basis.
+    if let Some(ref v) = cli.agency {
+        axes.agency = Some(v.clone());
+    }
+    if let Some(ref v) = cli.quality {
+        axes.quality = Some(v.clone());
+    }
+    if let Some(ref v) = cli.scope {
+        axes.scope = Some(v.clone());
+    }
+
+    axes
 }
 
 /// Finds the `prompts/` directory relative to the executable or CWD.

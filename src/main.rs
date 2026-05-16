@@ -1,6 +1,7 @@
 mod api;
 mod assemble;
 mod config;
+mod config_cli;
 mod daemon;
 mod presets;
 mod resolve;
@@ -95,6 +96,16 @@ struct Cli {
 }
 
 fn main() {
+    // Route to config CLI when first positional arg is "config".
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "config" {
+        let config_args: Vec<String> = std::iter::once(args[0].clone())
+            .chain(args[2..].iter().cloned())
+            .collect();
+        config_cli::run(&config_args);
+        return;
+    }
+
     let cli = Cli::parse();
 
     // Load config (empty default if no file found).

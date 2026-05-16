@@ -16,10 +16,25 @@ use clap::Parser;
 /// Ports claude-code-modes to the DeepSeek-TUI daemon API, replacing the
 /// behavioral layer of the system prompt while preserving DeepSeek-TUI's
 /// infrastructure.
+///
+/// # Presets
+///
+/// | Preset       | Agency         | Quality      | Scope          |
+/// |--------------|----------------|--------------|----------------|
+/// | `none`       | — (no axes)    | —            | —              |
+/// | `safe`       | collaborative  | minimal      | narrow         |
+/// | `create`     | autonomous     | architect    | unrestricted   |
+/// | `extend`     | autonomous     | pragmatic    | adjacent       |
+/// | `refactor`   | autonomous     | pragmatic    | unrestricted   |
+/// | `explore`    | collaborative  | architect    | narrow         |
+/// | `debug`      | collaborative  | pragmatic    | narrow         |
+/// | `methodical` | surgical       | architect    | narrow         |
+/// | `muse`       | autonomous     | architect    | unrestricted   |
 #[derive(Parser)]
 #[command(name = "deepseek-tui-modes", version, about)]
 struct Cli {
-    /// Preset name (none, safe, ...).
+    /// Preset name. One of: none, safe, create, extend, refactor,
+    /// explore, debug, methodical, muse. Defaults to "none" when omitted.
     preset: Option<String>,
 
     /// Agency axis: autonomous, collaborative, partner, surgical.

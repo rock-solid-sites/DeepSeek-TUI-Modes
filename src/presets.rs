@@ -30,48 +30,67 @@ impl AxisValues {
     }
 }
 
+/// A complete preset: axis values plus associated modifier names.
+#[derive(Debug, Clone)]
+pub struct Preset {
+    pub axes: AxisValues,
+    pub modifiers: Vec<String>,
+}
+
 /// Returns the axis values for a named preset, or `None` if the preset
 /// is unknown.
-pub fn get_preset(name: &str) -> Option<AxisValues> {
-    match name {
-        "none" => Some(AxisValues::default()),
-        "safe" => Some(AxisValues {
+///
+/// Modifiers are the built-in modifier names associated with each preset.
+/// They are merged with any CLI-specified modifiers (see main.rs).
+pub fn get_preset(name: &str) -> Option<Preset> {
+    let axes = match name {
+        "none" => AxisValues::default(),
+        "safe" => AxisValues {
             agency: Some("collaborative".to_string()),
             quality: Some("minimal".to_string()),
             scope: Some("narrow".to_string()),
-        }),
-        "create" | "muse" => Some(AxisValues {
+        },
+        "create" | "muse" => AxisValues {
             agency: Some("autonomous".to_string()),
             quality: Some("architect".to_string()),
             scope: Some("unrestricted".to_string()),
-        }),
-        "extend" => Some(AxisValues {
+        },
+        "extend" => AxisValues {
             agency: Some("autonomous".to_string()),
             quality: Some("pragmatic".to_string()),
             scope: Some("adjacent".to_string()),
-        }),
-        "refactor" => Some(AxisValues {
+        },
+        "refactor" => AxisValues {
             agency: Some("autonomous".to_string()),
             quality: Some("pragmatic".to_string()),
             scope: Some("unrestricted".to_string()),
-        }),
-        "explore" => Some(AxisValues {
+        },
+        "explore" => AxisValues {
             agency: Some("collaborative".to_string()),
             quality: Some("architect".to_string()),
             scope: Some("narrow".to_string()),
-        }),
-        "debug" => Some(AxisValues {
+        },
+        "debug" => AxisValues {
             agency: Some("collaborative".to_string()),
             quality: Some("pragmatic".to_string()),
             scope: Some("narrow".to_string()),
-        }),
-        "methodical" => Some(AxisValues {
+        },
+        "methodical" => AxisValues {
             agency: Some("surgical".to_string()),
             quality: Some("architect".to_string()),
             scope: Some("narrow".to_string()),
-        }),
-        _ => None,
-    }
+        },
+        _ => return None,
+    };
+
+    let modifiers = match name {
+        "debug" => vec!["debug".to_string()],
+        "methodical" => vec!["methodical".to_string()],
+        "muse" => vec!["muse".to_string()],
+        _ => vec![],
+    };
+
+    Some(Preset { axes, modifiers })
 }
 
 #[cfg(test)]
@@ -80,72 +99,81 @@ mod tests {
 
     #[test]
     fn test_none_preset() {
-        let axes = get_preset("none").unwrap();
-        assert!(axes.is_empty());
+        let preset = get_preset("none").unwrap();
+        assert!(preset.axes.is_empty());
+        assert!(preset.modifiers.is_empty());
     }
 
     #[test]
     fn test_safe_preset() {
-        let axes = get_preset("safe").unwrap();
-        assert_eq!(axes.agency.as_deref(), Some("collaborative"));
-        assert_eq!(axes.quality.as_deref(), Some("minimal"));
-        assert_eq!(axes.scope.as_deref(), Some("narrow"));
+        let preset = get_preset("safe").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("collaborative"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("minimal"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("narrow"));
+        assert!(preset.modifiers.is_empty());
     }
 
     #[test]
     fn test_create_preset() {
-        let axes = get_preset("create").unwrap();
-        assert_eq!(axes.agency.as_deref(), Some("autonomous"));
-        assert_eq!(axes.quality.as_deref(), Some("architect"));
-        assert_eq!(axes.scope.as_deref(), Some("unrestricted"));
+        let preset = get_preset("create").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("autonomous"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("architect"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("unrestricted"));
+        assert!(preset.modifiers.is_empty());
     }
 
     #[test]
     fn test_muse_preset() {
-        let axes = get_preset("muse").unwrap();
-        assert_eq!(axes.agency.as_deref(), Some("autonomous"));
-        assert_eq!(axes.quality.as_deref(), Some("architect"));
-        assert_eq!(axes.scope.as_deref(), Some("unrestricted"));
+        let preset = get_preset("muse").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("autonomous"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("architect"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("unrestricted"));
+        assert_eq!(preset.modifiers, vec!["muse"]);
     }
 
     #[test]
     fn test_extend_preset() {
-        let axes = get_preset("extend").unwrap();
-        assert_eq!(axes.agency.as_deref(), Some("autonomous"));
-        assert_eq!(axes.quality.as_deref(), Some("pragmatic"));
-        assert_eq!(axes.scope.as_deref(), Some("adjacent"));
+        let preset = get_preset("extend").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("autonomous"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("pragmatic"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("adjacent"));
+        assert!(preset.modifiers.is_empty());
     }
 
     #[test]
     fn test_refactor_preset() {
-        let axes = get_preset("refactor").unwrap();
-        assert_eq!(axes.agency.as_deref(), Some("autonomous"));
-        assert_eq!(axes.quality.as_deref(), Some("pragmatic"));
-        assert_eq!(axes.scope.as_deref(), Some("unrestricted"));
+        let preset = get_preset("refactor").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("autonomous"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("pragmatic"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("unrestricted"));
+        assert!(preset.modifiers.is_empty());
     }
 
     #[test]
     fn test_explore_preset() {
-        let axes = get_preset("explore").unwrap();
-        assert_eq!(axes.agency.as_deref(), Some("collaborative"));
-        assert_eq!(axes.quality.as_deref(), Some("architect"));
-        assert_eq!(axes.scope.as_deref(), Some("narrow"));
+        let preset = get_preset("explore").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("collaborative"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("architect"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("narrow"));
+        assert!(preset.modifiers.is_empty());
     }
 
     #[test]
     fn test_debug_preset() {
-        let axes = get_preset("debug").unwrap();
-        assert_eq!(axes.agency.as_deref(), Some("collaborative"));
-        assert_eq!(axes.quality.as_deref(), Some("pragmatic"));
-        assert_eq!(axes.scope.as_deref(), Some("narrow"));
+        let preset = get_preset("debug").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("collaborative"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("pragmatic"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("narrow"));
+        assert_eq!(preset.modifiers, vec!["debug"]);
     }
 
     #[test]
     fn test_methodical_preset() {
-        let axes = get_preset("methodical").unwrap();
-        assert_eq!(axes.agency.as_deref(), Some("surgical"));
-        assert_eq!(axes.quality.as_deref(), Some("architect"));
-        assert_eq!(axes.scope.as_deref(), Some("narrow"));
+        let preset = get_preset("methodical").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("surgical"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("architect"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("narrow"));
+        assert_eq!(preset.modifiers, vec!["methodical"]);
     }
 
     #[test]

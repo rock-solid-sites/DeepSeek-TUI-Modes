@@ -25,6 +25,11 @@ pub enum AssembleError {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("missing modifier fragment: {path}")]
+    MissingModifierFragment {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -35,6 +40,7 @@ pub struct AssembleOptions {
     pub prompts_dir: PathBuf,
     pub base: String,
     pub axes: AxisValues,
+    pub modifiers: Vec<String>,
 }
 
 fn base_to_dir(name: &str) -> &str {
@@ -94,7 +100,21 @@ pub fn assemble_prompt(options: &AssembleOptions) -> Result<String, AssembleErro
                     }
                 }
             }
-            "modifiers" => {}
+            "modifiers" => {
+                if !options.modifiers.is_empty() {
+                    let modifiers_dir = options.prompts_dir.join("modifiers");
+                    for mod_name in &options.modifiers {
+                        let path = modifiers_dir.join(format!("{mod_name}.md"));
+                        let content = fs::read_to_string(&path).map_err(|e| {
+                            AssembleError::MissingModifierFragment {
+                                path: path.clone(),
+                                source: e,
+                            }
+                        })?;
+                        sections.push(content.trim().to_string());
+                    }
+                }
+            }
             name => {
                 let path = base_dir.join(name);
                 let content =
@@ -134,6 +154,7 @@ mod tests {
             prompts_dir,
             base: "standard".to_string(),
             axes: AxisValues::default(),
+            modifiers: vec![],
         };
 
         let result = assemble_prompt(&options).unwrap();
@@ -176,6 +197,7 @@ mod tests {
                 quality: Some("minimal".to_string()),
                 scope: Some("narrow".to_string()),
             },
+            modifiers: vec![],
         };
 
         let result = assemble_prompt(&options).unwrap();
@@ -205,6 +227,7 @@ mod tests {
             prompts_dir,
             base: "standard".to_string(),
             axes: AxisValues::default(),
+            modifiers: vec![],
         };
         let err = assemble_prompt(&options).unwrap_err();
         assert!(matches!(err, AssembleError::MissingFragment { .. }));
@@ -228,8 +251,73 @@ mod tests {
                 quality: None,
                 scope: None,
             },
+            modifiers: vec![],
         };
         let err = assemble_prompt(&options).unwrap_err();
         assert!(matches!(err, AssembleError::MissingAxisFragment { .. }));
+    }
+
+    #[test]
+    fn assemble_with_modifiers() {
+        let dir = tempfile::tempdir().unwrap();
+        let prompts_dir = dir.path().join("prompts");
+        let base_dir = prompts_dir.join("base");
+        let modifiers_dir = prompts_dir.join("modifiers");
+        fs::create_dir_all(&base_dir).unwrap();
+        fs::create_dir_all(&modifiers_dir).unwrap();
+
+        fs::write(
+            base_dir.join("base.json"),
+            r#"["intro.md", "axes", "modifiers", "tone.md"]"#,
+        )
+        .unwrap();
+        fs::write(base_dir.join("intro.md"), "Intro.").unwrap();
+        fs::write(base_dir.join("tone.md"), "Tone.").unwrap();
+        fs::write(modifiers_dir.join("debug.md"), "Modifier: debug").unwrap();
+        fs::write(
+            modifiers_dir.join("bold.md"),
+            "Modifier: bold",
+        )
+        .unwrap();
+
+        let options = AssembleOptions {
+            prompts_dir,
+            base: "standard".to_string(),
+            axes: AxisValues::default(),
+            modifiers: vec!["debug".to_string(), "bold".to_string()],
+        };
+
+        let result = assemble_prompt(&options).unwrap();
+        assert!(result.contains("Modifier: debug"));
+        assert!(result.contains("Modifier: bold"));
+        // Modifiers appear after axes (which is empty here), before tone.md
+        assert_eq!(
+            result,
+            "Intro.\n\nModifier: debug\n\nModifier: bold\n\nTone."
+        );
+    }
+
+    #[test]
+    fn assemble_missing_modifier_fragment() {
+        let dir = tempfile::tempdir().unwrap();
+        let prompts_dir = dir.path().join("prompts");
+        let base_dir = prompts_dir.join("base");
+        let modifiers_dir = prompts_dir.join("modifiers");
+        fs::create_dir_all(&base_dir).unwrap();
+        fs::create_dir_all(&modifiers_dir).unwrap();
+
+        fs::write(base_dir.join("base.json"), r#"["intro.md", "modifiers"]"#).unwrap();
+        fs::write(base_dir.join("intro.md"), "Intro.").unwrap();
+        // Don't create the modifier file — should trigger MissingModifierFragment
+
+        let options = AssembleOptions {
+            prompts_dir,
+            base: "standard".to_string(),
+            axes: AxisValues::default(),
+            modifiers: vec!["nonexistent".to_string()],
+        };
+
+        let err = assemble_prompt(&options).unwrap_err();
+        assert!(matches!(err, AssembleError::MissingModifierFragment { .. }));
     }
 }

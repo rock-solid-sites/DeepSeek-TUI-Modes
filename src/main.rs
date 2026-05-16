@@ -3,6 +3,7 @@ mod assemble;
 mod daemon;
 mod presets;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
@@ -30,6 +31,11 @@ use clap::Parser;
 /// | `debug`      | collaborative  | pragmatic    | narrow         |
 /// | `methodical` | surgical       | architect    | narrow         |
 /// | `muse`       | autonomous     | architect    | unrestricted   |
+///
+/// # Modifiers
+///
+/// Built-in modifiers can be combined with any preset via `--modifier`.
+/// See `--help` for the full list.
 #[derive(Parser)]
 #[command(name = "deepseek-tui-modes", version, about)]
 struct Cli {
@@ -57,9 +63,29 @@ struct Cli {
     #[arg(long)]
     print: bool,
 
+    /// Built-in modifier name. Repeatable. Valid values: readonly,
+    /// context-pacing, debug, methodical, director, bold, speak-plain,
+    /// tdd, muse.
+    #[arg(long, value_name = "NAME")]
+    modifier: Vec<String>,
+
+    /// Shorthand for --modifier readonly.
+    #[arg(long)]
+    readonly: bool,
+
+    /// Shorthand for --modifier context-pacing.
+    #[arg(long)]
+    context_pacing: bool,
+
     /// Passthrough arguments forwarded after `--`.
     #[arg(last = true)]
     passthrough: Vec<String>,
+}
+
+/// Result of computing axes and modifiers from preset + CLI overrides.
+struct ModeConfig {
+    axes: presets::AxisValues,
+    modifiers: Vec<String>,
 }
 
 fn main() {
@@ -91,14 +117,15 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let preset = cli.preset.clone().unwrap_or_else(|| "none".to_string());
     let prompts_dir = find_prompts_dir();
 
-    // -- Axis computation -------------------------------------------------------
-    let axes = compute_axes(&cli);
+    // -- Mode computation ----------------------------------------------------
+    let mode = compute_mode(&cli);
 
     // -- Assembly ---------------------------------------------------------------
     let options = assemble::AssembleOptions {
         prompts_dir,
         base: "standard".to_string(),
-        axes,
+        axes: mode.axes,
+        modifiers: mode.modifiers,
     };
     let assembled = assemble::assemble_prompt(&options)?;
 
@@ -155,12 +182,13 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
 /// Handles `--print`: assemble and print the prompt, then exit.
 fn print_and_exit(cli: &Cli) {
     let prompts_dir = find_prompts_dir();
-    let axes = compute_axes(cli);
+    let mode = compute_mode(cli);
 
     let options = assemble::AssembleOptions {
         prompts_dir,
         base: "standard".to_string(),
-        axes,
+        axes: mode.axes,
+        modifiers: mode.modifiers,
     };
 
     match assemble::assemble_prompt(&options) {
@@ -172,25 +200,45 @@ fn print_and_exit(cli: &Cli) {
     }
 }
 
-/// Compute effective axis values from preset + CLI overrides.
+/// Valid built-in modifier names.
+const VALID_MODIFIERS: &[&str] = &[
+    "readonly",
+    "context-pacing",
+    "debug",
+    "methodical",
+    "director",
+    "bold",
+    "speak-plain",
+    "tdd",
+    "muse",
+];
+
+/// Compute effective mode (axes + modifiers) from preset + CLI overrides.
 ///
 /// Resolution order:
-/// 1. Start with all axes `None` (no axes).
-/// 2. If a known preset is given, merge its axis values.
+/// 1. Start with all axes `None` (no axes) and empty modifiers.
+/// 2. If a known preset is given, merge its axis values and modifiers.
 /// 3. CLI flag values override the preset for that axis.
-fn compute_axes(cli: &Cli) -> presets::AxisValues {
+/// 4. CLI modifiers are appended after preset modifiers, deduplicated
+///    preserving order.
+fn compute_mode(cli: &Cli) -> ModeConfig {
     let mut axes = presets::AxisValues::default();
-
     let preset_name = cli.preset.as_deref().unwrap_or("none");
-    if preset_name != "none" {
-        if let Some(preset_axes) = presets::get_preset(preset_name) {
-            axes.merge(&preset_axes);
+
+    // Start with preset modifiers.
+    let mut modifiers: Vec<String> = if preset_name != "none" {
+        if let Some(preset) = presets::get_preset(preset_name) {
+            axes.merge(&preset.axes);
+            preset.modifiers
         } else {
             eprintln!("Warning: unknown preset '{preset_name}', using none");
+            vec![]
         }
-    }
+    } else {
+        vec![]
+    };
 
-    // CLI flags override on a per-axis basis.
+    // CLI axis overrides on a per-axis basis.
     if let Some(ref v) = cli.agency {
         axes.agency = Some(v.clone());
     }
@@ -201,7 +249,32 @@ fn compute_axes(cli: &Cli) -> presets::AxisValues {
         axes.scope = Some(v.clone());
     }
 
-    axes
+    // CLI modifiers: append deduplicated, preserving order.
+    let mut seen: HashSet<String> = modifiers.iter().cloned().collect();
+    for m in &cli.modifier {
+        if seen.insert(m.clone()) {
+            modifiers.push(m.clone());
+        }
+    }
+    if cli.readonly && seen.insert("readonly".to_string()) {
+        modifiers.push("readonly".to_string());
+    }
+    if cli.context_pacing && seen.insert("context-pacing".to_string()) {
+        modifiers.push("context-pacing".to_string());
+    }
+
+    // Validate modifier names.
+    for m in &modifiers {
+        if !VALID_MODIFIERS.contains(&m.as_str()) {
+            eprintln!(
+                "Error: unknown modifier '{m}'. Valid modifiers: {}",
+                VALID_MODIFIERS.join(", ")
+            );
+            process::exit(1);
+        }
+    }
+
+    ModeConfig { axes, modifiers }
 }
 
 /// Finds the `prompts/` directory relative to the executable or CWD.

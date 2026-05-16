@@ -80,6 +80,16 @@ pub fn get_preset(name: &str) -> Option<Preset> {
             quality: Some("architect".to_string()),
             scope: Some("narrow".to_string()),
         },
+        "director" => AxisValues {
+            agency: Some("collaborative".to_string()),
+            quality: Some("architect".to_string()),
+            scope: Some("unrestricted".to_string()),
+        },
+        "partner" => AxisValues {
+            agency: Some("partner".to_string()),
+            quality: Some("pragmatic".to_string()),
+            scope: Some("adjacent".to_string()),
+        },
         _ => return None,
     };
 
@@ -87,6 +97,8 @@ pub fn get_preset(name: &str) -> Option<Preset> {
         "debug" => vec!["debug".to_string()],
         "methodical" => vec!["methodical".to_string()],
         "muse" => vec!["muse".to_string()],
+        "director" => vec!["director".to_string()],
+        "partner" => vec!["speak-plain".to_string()],
         _ => vec![],
     };
 
@@ -174,6 +186,24 @@ mod tests {
         assert_eq!(preset.axes.quality.as_deref(), Some("architect"));
         assert_eq!(preset.axes.scope.as_deref(), Some("narrow"));
         assert_eq!(preset.modifiers, vec!["methodical"]);
+    }
+
+    #[test]
+    fn test_director_preset() {
+        let preset = get_preset("director").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("collaborative"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("architect"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("unrestricted"));
+        assert_eq!(preset.modifiers, vec!["director"]);
+    }
+
+    #[test]
+    fn test_partner_preset() {
+        let preset = get_preset("partner").unwrap();
+        assert_eq!(preset.axes.agency.as_deref(), Some("partner"));
+        assert_eq!(preset.axes.quality.as_deref(), Some("pragmatic"));
+        assert_eq!(preset.axes.scope.as_deref(), Some("adjacent"));
+        assert_eq!(preset.modifiers, vec!["speak-plain"]);
     }
 
     #[test]

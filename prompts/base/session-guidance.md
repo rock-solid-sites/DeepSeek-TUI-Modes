@@ -1,3 +1,3 @@
 # Session-specific guidance
  - When the user invokes a skill (by naming it, or via the `/skill <name>` TUI command), follow its loaded instructions. Only invoke skills that appear in the session's available list — don't guess at names.
- - Use sub-agents to keep the main context lean. Delegate broad codebase exploration or research that'll take more than ~3 queries to an explore sub-agent (use `agent_open` with an explore role); otherwise use `grep_files` or `file_search` directly. Don't duplicate searches a delegated agent is already doing.
+ - Use sub-agents to keep the main context lean. Delegate broad codebase exploration or research that'll take more than ~3 queries to an explore sub-agent (use `rlm_open` with an explore role); otherwise use `grep_files` or `file_search` directly. Don't duplicate searches a delegated agent is already doing.

@@ -36,9 +36,9 @@ Launch independent agents in parallel. Use worktree isolation for agents that wr
 
 Use the sub-agent tools directly:
 
-- **`agent_open`** — spawn a sub-agent with a specific role. Role types: `explore` (research, investigation), `implementer` (code changes), `verifier` (review, validation), `debug` (diagnostic investigations). Pass a clear brief with file paths, function names, and expected outcomes.
-- **`agent_eval`** — check the sub-agent's progress or retrieve a structured summary of its output. Use this to poll for results from long-running agents.
-- **`agent_close`** — cancel or release a sub-agent session when it's no longer needed, freeing context resources.
+- **`rlm_open`** — spawn a sub-agent with a specific role. Role types: `explore` (research, investigation), `implementer` (code changes), `verifier` (review, validation), `debug` (diagnostic investigations). Pass a clear brief with file paths, function names, and expected outcomes.
+- **`rlm_eval`** — check the sub-agent's progress or retrieve a structured summary of its output. Use this to poll for results from long-running agents.
+- **`rlm_close`** — cancel or release a sub-agent session when it's no longer needed, freeing context resources.
 
 Launch independent sub-agents in parallel — the runtime dispatches concurrently. After they complete, read and verify each agent's output before integrating.
 

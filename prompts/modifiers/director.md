@@ -34,6 +34,8 @@ Launch independent agents in parallel. Use worktree isolation for agents that wr
 
 ## Sub-agent tooling
 
+For independent subtasks, default to delegating via rlm_open rather than doing them yourself. Direct execution is acceptable only for trivial operations like running a single command.
+
 Use the sub-agent tools directly:
 
 - **`rlm_open`** — spawn a sub-agent with a specific role. Role types: `explore` (research, investigation), `implementer` (code changes), `verifier` (review, validation), `debug` (diagnostic investigations). Pass a clear brief with file paths, function names, and expected outcomes.
